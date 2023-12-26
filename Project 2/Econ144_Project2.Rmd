@@ -1,0 +1,639 @@
+---
+title: "Econ 144 Project 2"
+author: "Seungyeon Yoo"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: TRUE
+    toc_depth: 3
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      out.width = "75%", fig.align = "center")
+```
+
+\pagebreak
+
+```{r}
+library(fpp3)
+# Loading datasets
+k_export <- read.csv("Korea_export1990.csv")
+i_export <- read.csv("Indonesia_export1990.csv")
+
+names(k_export) <- c("Date", "Monthly")
+names(i_export) <- c("Date", "Monthly")
+
+# Orignal data just for the initial comparison
+k_export_orig <- k_export %>%
+  mutate(Date = yearmonth(Date)) %>%
+  mutate(Monthly = Monthly) %>% 
+  filter(Date >= yearmonth("1990 Jan") & Date <= yearmonth("2023 Dec")) %>%
+  tsibble()
+
+i_export_orig <- i_export %>%
+  mutate(Date = yearmonth(Date)) %>%
+  mutate(Monthly = Monthly) %>%
+  filter(Date >= yearmonth("1990 Jan") & Date <= yearmonth("2023 Dec")) %>%
+  tsibble()
+
+
+# Loggin the data to stabilize the variances
+# 
+k_export <- k_export_orig %>%
+  mutate(Date = yearmonth(Date)) %>%
+  mutate(Monthly = log(Monthly)) %>% 
+  tsibble()
+
+# Loggin the data to stabilize the variances
+i_export <- i_export_orig %>%
+  mutate(Date = yearmonth(Date)) %>%
+  mutate(Monthly = log(Monthly)) %>%
+  tsibble()
+
+```
+
+
+
+
+# I. Introduction 
+
+
+
+This project attempts to analyze the monthly exports of two countries, Korea and Indonesia, over the past 30 years (1990 - 2023). Specifically, it focuses on analyzing the relationship between two different time series that exhibit similar behaviors over time, and it explores potential causal relationships and investigates how one variable can serve as a predictor for the other variable.
+
+According to the article, "The top 10 largest economies in the world in 2023", published by Forbes India, Korea, and Indonesia are the countries with the 13th and 16th largest economies, respectively, in the world. Further investigating the relationship between these two countries with fairly similar ranks may show how countries with different economic backgrounds can help explain each other and could play a role in forecasting future values.
+
+In this context, quantitative measures play a crucial role in assessing a country's economic strength and level of development. Analyzing economic factors, such as GDP and Import/Export, becomes especially insightful when comparing countries with different levels of development and growth rates. For the purpose of the project, monthly export amounts were selected as the primary datasets due to their significance as a key economic indicator, providing valuable insights into a country's engagement in international trade and economic growth.
+
+
+
+# II. Results (answers and plots).
+
+### (a) Produce a time-series plot of your data including the respective ACF and PACF plots.
+
+```{r}
+# International Trade: Exports: Value (Goods): Total for Korea
+autoplot(k_export, col = "skyblue3") + 
+  labs(title = "International Trade: Exports: Value (Goods): Total for Korea",
+       y = "Log-Monthly Export")
+```
+
+```{r}
+# ACF and PACF for usd_krw
+library(forecast)
+tsdisplay(k_export[,2], 
+          main = "International Trade: Exports: Value (Goods): Total for Korea")
+```
+
+The original plot exhibits a clear upward trend while also providing some evidence of cycles present. While the seasonal component is not clearly identified visually, there still seem to be some regular spikes for certain time windows, though the patterns tend to change over time. Based on the slowly decaying ACF, high persistence of the original plot, and a huge spike in PACF, the series appears to be an AR process, specifically an AR(1) or possibly AR(2) process.
+
+
+```{r}
+# International Trade: Exports: Value (Goods): Total for Indonesia
+autoplot(i_export, col = "red3") +
+  labs(title = "International Trade: Exports: Value (Goods): Total for Indonesia",
+       y = "Log-Monthly Export")
+```
+
+```{r}
+# ACF and PACF for usd_jpy
+tsdisplay(i_export[,2], 
+          main = "International Trade: Exports: Value (Goods): Total for Indonesia")
+```
+
+The time series for Indonesia's monthly export is also exhibiting a very similar behavior as the previous series (Monthly Export for Korea). The highly persistent plot, slowly decaying ACF's behavior, and the first two spikes in the PACF suggest an AR(2) process 
+
+```{r}
+# Plotting the two time series together
+ts_k_export <- ts(k_export$Monthly, start = 1990, freq = 12)
+ts_i_export <- ts(i_export$Monthly, start = 1990, freq = 12)
+
+# transforming data using z-score to compare data on the same scale
+z_k_export <- (ts_k_export - mean(ts_k_export)) / sd(ts_k_export)
+z_i_export <- (ts_i_export - mean(ts_i_export)) / sd(ts_i_export)
+
+autoplot(z_k_export, series = "Korea") + 
+  autolayer(z_i_export, series = "Indonesia") +
+  labs(y = "Standardized Values", 
+       title = "Standardized Logarithmic Export Values for Koreea and Indonesia")+
+  scale_color_manual(values = c("skyblue3", "red3"), breaks = c("Korea", "Indonesia"))
+```
+
+The plot above is the standardized z-score of each time series, done for the purpose of visual inspection of the series on the same scale
+
+
+### (b) Plot the stl decomposition plot of your data, and discuss the results.
+
+```{r}
+stl_kexport <- stl(ts_k_export, s.window = 12, robust = TRUE)
+stl_iexport <- stl(ts_i_export, s.window = 12, robust = TRUE)
+
+
+autoplot(stl_kexport) + # STL decomposition for Korea
+  labs(title = "STL decomposition for Korea Monthly Export")
+autoplot(stl_iexport) +# STL decomposition for Indonesia
+  labs(title = "STL decomposition for Indonesia Monthly Export")
+
+
+```
+
+The monthly export series for Korea is exhibiting a general upward trend. The seasonal component of the series is not easily identified by visual inspection, and as can be seen in the decomposition plot, seasonality tends to change over time in terms of the patterns and the amplitudes. Based on the remainder section, we can observe that there is still a considerable amount of dynamics left even after removing trend and seasonality, which suggests that there may be a strong cyclic component present in the original series.
+
+
+The time series for Indonesia also shows a similar behavior to the series for Korea. An upward trend with a slight tendency of flatting out in the more recent years, and the seasonality tends to change over time. Also, the remainder indicates noticeable dynamics, which will have to be taken care of with further investigation in the residual plot.
+
+
+### (c) Fit a model that includes, trend, seasonality and cyclical components. Make sure to discuss your model in detail.
+
+```{r}
+# Model from scratch
+t <- seq(1990, 2023.8, length = length(ts_k_export))
+t2 <- t^2
+
+
+k_Lin_T <- lm(ts_k_export ~ t) # Linear Trend
+k_Quad_T <- lm(ts_k_export ~ t + t2) # Quadratic Trend
+
+
+i_Lin_T <- lm(ts_i_export ~ t) # Linear Trend
+i_Quad_T <- lm(ts_i_export ~ t + t2) # Quadratic Trend
+
+plot(ts_k_export, main = "Trend model for Korea", 
+     ylab = "Log-Monthly Export", col = "skyblue3")
+lines(t, k_Lin_T$fitted.values, col = "yellow3")
+lines(t, k_Quad_T$fitted.values, col = "blue")
+
+
+
+plot(ts_i_export, main = "Trend model for Indonesia", 
+     ylab = "Log-Monthly Export", col = "red3")
+lines(t, i_Lin_T$fitted.values, col = "yellow3")
+lines(t, i_Quad_T$fitted.values, col = "blue3")
+
+
+# Quadratic model seems to be a good fit
+```
+
+Considering the fact that both plots have a tendency to flat out in the more recent year, a quadratic trend would be a good trend model for the series.
+
+
+```{r}
+library(forecast)
+# Quadratic trend + Seaonality
+k_trend_seasonal <- tslm(ts_k_export ~ 0 + t + t2 + season)$fitted 
+# Quadratic trend + Seaonality
+i_trend_seasonal <- tslm(ts_i_export ~ 0 + t + t2 + season)$fitted 
+
+plot(ts_k_export, main = "Trend-Seasonal Model for Korea", 
+     ylab = "Log-Monthly Export", col = "skyblue3")
+lines(t, k_trend_seasonal, col = "purple3")
+
+plot(ts_i_export, main = "Trend-Seasonal Model  for Indonesia", 
+     ylab = "Log-Monthly Export", col = "red3")
+lines(t, i_trend_seasonal, col = "purple3")
+
+```
+
+As observed in the original plots, the seasonality was neither regular nor strong. Thus, even when added the seasonal components to the trend models, it does not result in any dramatic changes
+
+```{r}
+# Residuals after fitting the Trend-seasonal model
+k_t_s_resid <- ts_k_export - k_trend_seasonal
+i_t_s_resid <- ts_i_export - i_trend_seasonal
+
+
+tsdisplay(k_t_s_resid, 
+          main = "Residuals after fitting Trend + Seasonal model for Korea")
+tsdisplay(i_t_s_resid, 
+          main = "Residuals after fitting Trend + Seasonal model for Indonesia" )
+```
+
+Based on the ACF and PACF of residuals after fitting the Trend-seasonal model, AR(4) and AR(2) processes seem appropriate for Korea and Indonesia respectively to capture the cyclic components
+
+```{r}
+k_cycle <- fitted(arima(k_t_s_resid, order = c(4,0,0)))
+i_cycle <- fitted(arima(i_t_s_resid, order = c(2,0,0)))
+
+k_full_model <- k_trend_seasonal + k_cycle # Trend + Seasonality + Cycle
+i_full_model <- i_trend_seasonal + i_cycle # Trend + Seasonality + Cycle
+
+plot(ts_k_export, main = "Full model for Korea", 
+     ylab = "Log-Monthly Export", col = "skyblue3")
+lines(t, k_full_model, col = "purple")
+
+plot(ts_i_export, main = "Full for Indonesia", 
+     ylab = "Log-Monthly Export", col = "red3")
+lines(t, i_full_model, col = "purple")
+
+```
+
+Capturing the cycles in the model dramatically improves the model fit.
+
+
+### (e) Plot the respective residuals vs. fitted values and discuss your observations.
+```{r}
+# Korea
+# Trend + Seasonal + Cycle Model residual plots
+k_resid <- ts_k_export - k_full_model
+plot(k_resid ~ k_full_model,
+     main = "Redisuals vs. Fitted",
+     xlab = "Fitted values",
+     ylab = "Residuals")
+abline(h = 0, col = "red")
+```
+
+
+```{r}
+# Indonesia
+# Trend + Seasonal + Cycle Model residual plots
+i_resid <- ts_i_export - i_full_model
+plot(i_resid ~ i_full_model,
+     main = "Redisuals vs. Fitted",
+     xlab = "Fitted values",
+     ylab = "Residuals")
+abline(h = 0, col = "red")
+```
+
+The residuals vs. fitted values scatter plot shows almost no pattern. there are some outliers that are far from 0, which is the expected error mean. Based on these scatter plots, the models are capturing the patterns in the series well.
+
+
+
+### (f) Plot the ACF and PACF of the respective residuals and interpret the plots.
+```{r}
+tsdisplay(ts_k_export - k_full_model, 
+          main = "Residuals after fitting the full model (Korea)")
+tsdisplay(ts_i_export - i_full_model, 
+          main = "Residuals after fitting the full model (Indonesia)")
+
+# Accoring to Ljung-box test, the remainder after modeling the cycle has no autocorrelation
+Box.test(ts_k_export - k_full_model)
+Box.test(ts_i_export - i_full_model)
+
+
+auto.arima(ts_k_export - k_full_model)
+auto.arima(ts_i_export - i_full_model)
+# But auto.arima says that there is still room for improvement
+```
+
+
+We can see that ACF and PACF are not showing any obvious patterns, although a few spikes in the further lags may need to be investigated. So we check their significance by running the Ljung-Box test. By failing to reject the Ljung-Box test, I initially thought that the residuals left were like white noise, which is a great indication that the model was well-fitted. However, `auto. arima` still shows that there is still room for improvement, which is likely due to the random spikes observed in the further lags. This model made from scratch will be compared to the pure auto.arima model in the later section of this project and the evaluation of their performance will be further discussed.
+
+
+
+
+### (g) Plot the respective CUSUM and interpret the plot.
+```{r}
+library(strucchange)
+k_resid <- ts_k_export - k_full_model
+i_resid <- ts_i_export - i_full_model
+
+
+# Plotting recursive CUSUM Test for residuals of each country
+plot(efp(k_resid ~ 1, type = "Rec-CUSUM"))
+plot(efp(i_resid ~ 1, type = "Rec-CUSUM"))
+
+
+
+```
+
+The cumulative sum of residuals stays within the red lines, which means there is no structural break in the model even when more observations are added
+
+### (h) For your model, discuss the associated diagnostic statistics.
+```{r}
+library(fabletools)
+
+# Diagnostic statistics for Korea and Indonesia
+diag_stat <- data.frame(MAPE = c(MAPE(.resid = k_resid, .actual = ts_k_export),
+                    MAPE(.resid = i_resid, .actual = ts_i_export)),
+           RMSE = c(RMSE(.resid = k_resid, .actual = ts_k_export),
+                    RMSE(.resid = i_resid, .actual = ts_i_export)))
+rownames(diag_stat) <- c("Korea", "Indonesia")
+
+diag_stat
+
+```
+MAPE (Mean Absolute Percentage Error) is 0.145 and 0.177 for the Korea and Indonesia model respectively, which mean that on average, the model's predictions may deviate from the original data by 14% and 17% for each series. 
+
+For RMSE, they are 0.046 for Korea and 0.058 for Indonesia. This means that the models may deviate from the actual values by 0.046 and 0.058 units on average, on the scale of 22 - 24.
+
+These diagnostic statistics are indicating good signs that the models are performing considerably well on the existing data.
+
+
+### (i) Use your model to forecast 12-steps ahead. Your forecast should include the respective error bands.
+
+```{r}
+# Setting the prediction intervals
+lower <- forecast(k_trend_seasonal, h = 12)$lower +
+  forecast(k_cycle, h = 12)$lower
+lo80 <- lower[,1]
+lo95 <- lower[,2]
+
+upper <- forecast(k_trend_seasonal, h = 12)$upper +
+  forecast(k_cycle, h = 12)$upper
+up80 <- upper[,1]
+up95 <- upper[,2]
+
+autoplot(forecast(k_trend_seasonal, h = 12)$mean +
+  forecast(k_cycle, h = 12)$mean, col = "red") +
+  geom_ribbon(aes(ymin = lo80, ymax = up80), fill = "skyblue", alpha = 0.5) +
+  geom_ribbon(aes(ymin = lo95, ymax = up95), fill = "skyblue3", alpha = 0.5) +
+  autolayer(ts_k_export) +
+  autolayer(k_full_model) +
+  theme(legend.position = "none") +
+  labs(title = "12-ahead forecast for Korea's Export",
+       y = "Log-Monthly Exports")
+
+
+
+```
+
+```{r}
+# Setting the prediction intervals
+lower <- forecast(i_trend_seasonal, h = 12)$lower +
+  forecast(i_cycle, h = 12)$lower
+lo80 <- lower[,1]
+lo95 <- lower[,2]
+
+upper <- forecast(i_trend_seasonal, h = 12)$upper +
+  forecast(i_cycle, h = 12)$upper
+up80 <- upper[,1]
+up95 <- upper[,2]
+
+autoplot(forecast(i_trend_seasonal, h = 12)$mean +
+  forecast(i_cycle, h = 12)$mean, col = "red") +
+  geom_ribbon(aes(ymin = lo80, ymax = up80), fill = "skyblue", alpha = 0.5) +
+  geom_ribbon(aes(ymin = lo95, ymax = up95), fill = "skyblue3", alpha = 0.5) +
+  autolayer(ts_i_export) +
+  autolayer(i_full_model) +
+  theme(legend.position = "none") +
+  labs(title = "12-ahead forecast for Indonesia's Export",
+       y = "Log-Monthly Exports")
+  
+
+
+```
+
+
+### (j) Compare your forecast from (i) to the 12-steps ahead forecasts from auto.arima model. Which model performs best in terms of MAPE?
+
+```{r}
+k_auto <- auto.arima(ts_k_export)
+i_auto <- auto.arima(ts_i_export)
+
+plot(forecast(k_auto, h = 12), shadecols = "oldstyle")
+plot(forecast(i_auto, h = 12), shadecols = "oldstyle")
+```
+
+```{r}
+# Diagnostic statistics my model vs. auto.arima
+k_auto_resid <- ts_k_export - fitted(k_auto)
+i_auto_resid <- ts_i_export - fitted(i_auto)
+
+diag_stat <- data.frame(MAPE_i = c(MAPE(.resid = k_resid, .actual = ts_k_export),
+                    MAPE(.resid = i_resid, .actual = ts_i_export)),
+           MAPE_j = c(MAPE(.resid = k_auto_resid, .actual = ts_k_export),
+                    MAPE(.resid = i_auto_resid, .actual = ts_i_export)))
+rownames(diag_stat) <- c("Korea", "Indonesia")
+
+diag_stat
+
+```
+
+For the time series for Korea Monthly Export, the model created by `auto.arima` performs slightly better than the model built in (i). However, for the series for Indonesia, the model from (i) performs better than the `auto.arima` model.
+
+
+### (k) Combine the four forecasts and comment on the MAPE from this forecasts vs. the individual ones.
+```{r}
+
+par(mfrow = c(1,2))  
+plot(ts_k_export, xlim = c(2022.5, 2025), ylim = c(23.5, 25.5))
+lines(k_full_model, col = "red")
+lines(forecast(k_trend_seasonal, h = 12)$mean + 
+        forecast(k_cycle, h = 12)$mean, col = "red", lwd = 2)
+lines(fitted(k_auto), col = "purple")
+lines(forecast(k_auto, h = 12)$mean, col = "purple", lwd = 2)
+lines((k_full_model + fitted(k_auto)) / 2, col = "green")
+lines(forecast((k_full_model + fitted(k_auto)) / 2, h = 12)$mean, 
+      col = "green", lwd = 2)
+legend("bottomright",legend=c("T+S+C","auto.arima", "Combined"),
+       text.col=c("red","purple", "green"),bty="n")
+
+
+
+plot(ts_i_export, xlim = c(2022, 2025), ylim = c(22.5, 24.5))
+lines(i_full_model, col = "red")
+lines(forecast(i_trend_seasonal, h = 12)$mean + 
+        forecast(i_cycle, h = 12)$mean, col = "red", lwd = 2)
+lines(fitted(i_auto), col = "purple")
+lines(forecast(i_auto, h = 12)$mean, col = "purple", lwd = 2)
+lines((i_full_model + fitted(i_auto)) / 2, col = "green")
+lines(forecast((i_full_model + fitted(i_auto)) / 2, h = 12)$mean, 
+      col = "green", lwd = 2)
+legend("bottomright",legend=c("T+S+C","auto.arima", "Combined"),
+       text.col=c("red","purple", "green"),bty="n")
+```
+
+```{r}
+# Comparing MAPE
+
+# Combining models
+k_combined <- (k_full_model + fitted(k_auto)) / 2
+i_combined <- (i_full_model + fitted(i_auto)) / 2
+
+k_comb_resid <- ts_k_export - k_combined
+i_comb_resid <- ts_i_export - i_combined
+
+
+diag_stat <- data.frame(MAPE_tsc = c(MAPE(.resid = k_resid, .actual = ts_k_export),
+                    MAPE(.resid = i_resid, .actual = ts_i_export)),
+           MAPE_auto = c(MAPE(.resid = k_auto_resid, .actual = ts_k_export),
+                    MAPE(.resid = i_auto_resid, .actual = ts_i_export)),
+           MAPE_combined = c(MAPE(.resid = k_comb_resid, .actual = ts_k_export),
+                             MAPE(.resid = i_comb_resid, .actual = ts_i_export)))
+rownames(diag_stat) <- c("Korea", "Indonesia")
+
+diag_stat
+
+```
+
+As shown in the plots and the MAPE table, combined models average out the two different models and forecasts. In the case that two different models are "equally" under and overestimated, the combined models are strong because of their characteristics of averaging out different models. For example, For models for Korea, the combined model performed the best out of the three models. In contrast, for Indonesia, the initial model created in (i) still performs the best, which means that the model from (i) was closer to the original series and auto.arima model was relatively further away, and as a result, the combined model ended up being slightly off from the actual series.
+
+### (l) Fit an appropriate VAR model using your two variables. Make sure to show the relevant plots and discuss your results from the fit. 
+```{r}
+library(vars)
+# Taking first order difference to make it stationary
+diff_k_export <- diff(ts_k_export)
+diff_i_export <- diff(ts_i_export)
+
+var_model <- cbind(diff_k_export, diff_i_export)
+VARselect(var_model, lag.max = 10)
+```
+
+The appropriate order for the VAR model appears to be VAR(4).
+
+
+```{r}
+
+var_model <- VAR(var_model, p = 4)
+
+summary(var_model)
+
+# Taking first order difference to make it stationary
+ccf(diff(ts_k_export), diff(ts_i_export))
+
+
+```
+
+According the ccf, it seems like Indonesia export is maximally correlated lag 1 values of Korea export
+
+```{r, fig.height = 10}
+# Plotting VAR model
+plot(var_model)
+```
+
+VAR Estimation Results show that at the order of 4 (VAR(4)), both variables have impacts on each other. for `k_export` variables, lag 1, lag2, and lag3 values have significant impacts on `i_export` and lag 1 and lag3 values of `i_export` appears to be significant to explain `k_export`. 
+
+Additionally, we can see that ACF and PACF are all wiped out, which means the residuals are white noise. This also implies that the VAR model is well-fitted to the series.
+
+
+
+### (m) Compute, plot, and interpret the respective impulse response functions.
+```{r, fig.height = 5.5}
+# Impulse response functions
+plot(irf(var_model, n.ahead = 12))
+```
+
+The impulse response functions define the relationship between two variables differently from (m). In part (m) the VAR model showed that the relationship between the two variables is bidirectional. However, in the plots above, the followings are observed:
+
+1. Korea --> Korea: A dramatic decrease after a shock, and flats out after
+2. Korea --> Indonesia: Not as dramatic as Korea to Korea, but Indonesia's export seems to be affected by a shock in Korea's export
+3. Indonesia --> Korea: no impact
+4. Indonesia --> Indonesia: very similar to "Korea to Korea" behavior. A dramatic decrease right after a shock
+
+Thus, the impulse response function shows that a shock in Korea's exports somewhat affects Indonesia's export amount for the next month.
+
+### (n) Perform a Granger-Causality test on your variables and discuss your results from the test.
+```{r}
+grangertest(ts_k_export ~ ts_i_export, order = 4)
+grangertest(ts_i_export ~ ts_k_export, order = 4)
+```
+The Granger Causality says that the monthly export for Korea "granger cause" the monthly export for Indonesia, at a 0.01 significance level. However, at a higher significance level, such as 0.05, granger causality from Indonesia to Korea is also present.
+Therefore, it is evident that there is evidence of reverse causality or bidirectional causality between monthly exports for Korea and Indonesia at a higher significance level.
+
+### (o) Use your VAR model to forecast 12-steps ahead. Your forecast should include the respective error bands. Comment on the differences between the VAR forecast and the other ones obtained using the different methods.
+
+```{r, fig.height=8}
+
+colnames(var_model$y) <- c("Forecasts from VAR(4) model (Korea)", 
+                           "Forecasts from VAR(4) model (Indonesia)")
+
+autoplot(forecast(var_model, h = 12))
+```
+
+
+```{r}
+diff_k_export <- diff(ts_k_export)
+diff_i_export <- diff(ts_i_export)
+
+
+# T + S + C model for Korea
+
+k_T <- ts(numeric(length(diff_k_export)), start = c(1990,2), freq = 12)
+k_S <- stl(diff_k_export, s.window = 12)$time.series[,1]
+k_R <- diff_k_export - k_T - k_S
+k_C <- fitted(auto.arima(k_R))
+
+k_Resid <- diff_k_export - k_T - k_S - k_C
+
+```
+
+```{r}
+# T + S + C model for Indonesia
+
+i_T <- ts(numeric(length(diff_i_export)), start = c(1990,2), freq = 12)
+i_S <- stl(diff_i_export, s.window = 12)$time.series[,1]
+i_R <- diff_i_export - i_T - i_S
+i_C <- fitted(auto.arima(i_R))
+
+i_Resid <- diff_i_export - i_T - i_S - i_C
+
+
+```
+
+
+
+
+
+```{r}
+
+lower <- forecast(k_T, h = 12)$lower + forecast(k_S, h = 12)$lower + 
+  forecast(k_C, h = 12)$lower
+lo80 <- lower[,1]
+lo95 <- lower[,2]
+
+upper <- forecast(k_T, h = 12)$upper + forecast(k_S, h = 12)$upper + 
+  forecast(k_C, h = 12)$upper
+up80 <- upper[,1]
+up95 <- upper[,2]
+
+t_forecast<- time(upper)
+fore_mean <- forecast(k_T, h = 12)$mean + forecast(k_S, h = 12)$mean + 
+  forecast(k_C, h = 12)$mean
+
+ggplot() +
+  geom_ribbon(data = fore_mean, aes(x = t_forecast, ymin = lo80, ymax = up80), 
+              fill = "purple4", alpha = 0.5) +
+  geom_ribbon(data = fore_mean, aes(x = t_forecast, ymin = lo95, ymax = up95), 
+              fill = "purple3", alpha = 0.5) +
+  geom_line(data = diff_k_export, aes(x = time(diff_k_export), y = diff_k_export), 
+            color = "black") +
+  geom_line(data = fore_mean, aes(x = t_forecast, y = fore_mean), color = "blue") +
+  labs(title = "Forecasts from Trend-Seasonal-Cycle Model",
+       y = "Monthly Difference",
+       x = "Time")
+  
+
+
+
+autoplot(forecast(auto.arima(diff_k_export), h = 12)) +
+  labs (y = "Monthly Difference")
+```
+
+The main noticeable difference between VAR model forecasts and other forecasts seems to be the behavior of the forecasts, especially when the prediction is further away from the present. As can be seen above, the forecasts from the VAR model have a tendency to converge to the mean (the amplitudes get smaller). However, the other models show relatively consistent amplitudes even when the forecasts are further away. This intuitively makes sense because VAR models are dependent on lagged values, which means that as forecasts get further away, the correlation would be weaker, and this results in the decaying behavior of the VAR model forecasts.
+
+
+# III. Conclusions and Future Work.
+Based on the VAR model, impulse response function, and the Granger causality test, we can not clearly conclude that the causal relationship between two variables is unidirectional. The VAR model and Granger causality indicate that the causal relationship is bidirectional, and the impulse response function shows that Korea's exports may affect Indonesia's exports, though the impact does not appear to be as strong. Therefore, at this point, we do not have enough statistical evidence to conclude that one variable can explain the other.
+
+One thing to note is that when the time period for the series was adjusted, there were subsets that indicated a clear causal relationship. This could mean that the relationship between two variables may be time-variant.
+
+For future reference, a method to capture the time-variant relationship factor of the series or other economic factors that contribute to a deeper understanding of the interplay between these variables may need to be considered.
+
+
+
+\pagebreak
+
+
+
+# IV. References
+
+
+
+\setlength{\parindent}{-0.2in}
+\setlength{\leftskip}{0.2in}
+\setlength{\parskip}{8pt}
+\noindent
+
+Organization for Economic Co-operation and Development. “International Trade: Exports: Value (Goods): Total for Korea.” FRED, Federal Reserve Bank of St. Louis, 1 Jan. 1957, https://fred.stlouisfed.org/series/XTEXVA01KRM667S.
+
+Organization for Economic Co-operation and Development. “International Trade: Exports: Value (Goods): Total for Indonesia.” FRED, Federal Reserve Bank of St. Louis, 1 Jan. 1990, https://fred.stlouisfed.org/series/XTEXVA01IDM667S.
+
+“The Top 10 Largest Economies In The World In 2023.” Forbes India, https://www.forbesindia.com/article/explainers/top-10-largest-economies-in-the-world/86159/1/. Accessed 17 Nov. 2023.
+
+
+
+
+
