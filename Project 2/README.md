@@ -9,6 +9,7 @@ This project explores two respective time series datasets of monthly export trad
 Both of the datasets used for this project are downloaded from the FRED Economic data website 
 1. https://fred.stlouisfed.org/series/XTEXVA01IDM667S
 2. https://fred.stlouisfed.org/series/XTEXVA01KRM667S
+   
 The observation frequency of the data is monthly and was preprocessed for analysis.
 
 ## Methodology
