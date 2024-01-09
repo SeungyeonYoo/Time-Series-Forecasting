@@ -26,13 +26,28 @@ The observation frequency of the data is monthly and was preprocessed for analys
 
 
 #### STL + ARIMA Model
+- This model combines Seasonal-Trend decomposition using Loess (STL) and Autoregressive Integrated Moving Average (ARIMA) methods. STL decomposes the time series into seasonal, trend, and remainder components, and ARIMA models the residuals to capture any remaining patterns.
+  
 #### ARIMA Model
+- Autoregressive Integrated Moving Average (ARIMA) model uses differencing to make time series stationary and fits AR (Autoregressive) and MA (Moving Average) parameters.
+  
 #### ETS Model
+- Error-Trend-Seasonal (ETS) models capture the error, trend, and seasonal components of a time series. ETS model handles various patterns, including exponential smoothing, trend decay, and seasonality.
+  
 #### Holt-Winters Model
+- The Holt-Winters model considers the error, trend, and seasonality components of a time series.
+  
 #### Neural Network Model
+- Nueral Network Autoregressive (NNAR) models are based on simple mathematical models of the human brain. This model can learn from the historical data and make predictions based on the patterns identified
+
 #### Prophet Model
+- Prophet is a forecasting model developed by Facebook that handles time series data with daily observations that display patterns such as seasonality and holidays. In other words, this model is designed for high frequency data.
+  
 #### Combined Model
+- Combined model leverage individual strenghts. In this project, a simple averaging method is used.
+  
 #### ARCH/GARCH Model
-#### Performance Metrics
+- Autoregressive Conditional Heteroskedasticity (ARCH) and Generalized Autoregressive Conditional Heteroskedasticity (GARCH) models are used for modeling volatility.
+
 
 
