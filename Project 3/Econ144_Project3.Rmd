@@ -1,0 +1,550 @@
+---
+title: "Econ 144 Project 3"
+author: "Seungyeon Yoo"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: TRUE
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      out.width = "75%", fig.align = "center")
+```
+
+\pagebreak
+
+```{r}
+# libraries
+library(fpp3)
+library(dplyr)
+library(forecast)
+library(tseries)
+library(fable.prophet)
+library(knitr) # kable()
+library(strucchange) # CUSUM
+library(rugarch)
+
+```
+
+```{r}
+# Loading the time series dataset
+unemployment <- read.csv("unemployment_rate.csv")
+unemployment <- unemployment %>%
+  mutate(DATE = yearmonth(DATE)) %>%
+  tsibble()
+
+# Splitting the tsibble object
+tsibble_train <- unemployment %>%
+  filter(DATE < as.Date("2018-11-01"))
+tsibble_test <- unemployment %>%
+  filter(DATE >= as.Date("2018-11-01"))
+
+# Creating a ts object
+ts_unemployment <- ts(unemployment$CGBD2024, start = c(2000, 1), freq = 12)
+
+
+
+# Training-Test split
+ts_train <- ts(ts_unemployment[1:226], start = c(2000,1), freq = 12)
+ts_test <- ts(ts_unemployment[227:length(ts_unemployment)], 
+              start = c(2018, 11), freq = 12) # for 60 steps (5 years ahead forecasts)
+
+```
+
+
+# 1. Introduction
+
+This project attempts to model the time series of *unemployment rate among college graduates*, who are aged between 20-24 and have bachelor's degree and higher. The time series spans across the past 23 year, from 2000 to 2023, and the observation frequency is monthly. The primary focus of this project is to apply various modeling methods and finding the best performing forecasting model that could potentially perform well on the unknown future data. For the project purposes, 7 forecasting models were selected, including:
+
+1. STL + ARMA Model
+2. ARIMA Model
+3. ETS Model
+4. Holt-Winters Model
+5. Neural Network Autoregressive Model
+6. Prophet Model
+7. Combined Model
+
+To assess the performance of each model, the test-train split procedure was used, and the ratio of the split was; **train: 80% and test: 20%**. The performance of each model was numerically measured by performance metrics, specifically ME, RMSE, and MAE, and the preferred model was also selected based on the result.
+
+
+## (a) Background
+
+Unemployment rates among college graduates are a critical economic indicator that addresses the challenges and opportunities faced by young professionals getting into the workforce. A considerable amount of young people who are looking to graduate or have graduated have concerns about getting a job, and many actually do struggle to land their first jobs. Thus, analyzing the historical data on the unemployment rates on college graduates and forecasting the future rates not only could guide individuals to be able to see the big picture of employment trends, but also could play an important role in shaping the future workforce and better understanding the the current labor market, which also could provide insights for policymakers and educational institutions.
+
+## (b) Time series description and exploration
+
+#### Time Series: Unemployment Rate of College Graduates - Bachelor's Degree and Higher, 20 to 24 years
+```{r}
+# Plotting the original time series data
+plot(ts_unemployment, main = "Unemployment Rate of College Graduates (2000 - 2023)",
+     ylab = "Unemployment Rate (%)")
+grid()
+```
+
+```{r}
+tsdisplay(ts_unemployment,
+          main = "Unemployment Rate of College Graduates (2000 - 2023)")
+```
+
+The autocorrelation function plots verify that the original series has significant correlations with its own lagged values and appears to have more dynamics that are hard to be visually interpreted at this point. Beyond the visual inspection, this project attempts to capture more complex dynamics, and they will be explored and discussed in detail in part (2).
+
+
+
+# 2. Results
+
+## (a) STL + ARMA model
+
+First, the original series is decomposed into three parts; Seasonal, Trend, and Remainder,
+with the seasonal window of 12 months. In the plot below, we can see that the times series is exhibiting regular spikes with slightly changing amplitudes overtime. Also, the trend component captures the general trend of the training dataset.
+
+
+```{r}
+# STL Decoposition
+plot(stl(ts_train, s.window = 12), main = "STL Decomposition")
+```
+
+#### Seasonality of the time series
+\
+While the seasonal component from STL decomposition depict the seasonality quite generally, it may be helpful to note that while there is some obvious patterns observed in the seasonal plot, such as decreasing behaviors around March to May, and general spikes around June to August, the seasonal patterns tend to be irregular. The irregularity in the seasonal component can be identified by looking at the seasonal plot.
+```{r}
+# Exploring the Seasonality
+ggseasonplot(ts_train)
+```
+
+
+```{r}
+# STL + ARMA
+stl_arima_model <- stlm(ts_train, method = "arima")
+stl_arima_fit <- stlm(ts_train, method = "arima")$fitted
+stl_arima_fc <- forecast(stlm(ts_train, method = "arima"), h = 60)
+```
+
+As can be seen in the remainder plot, there is still a lot of dynamics left to be modeled after adjusting for seasonality and trend, and in this section, ARMA process will be used to capture the cyclic components after STL process. To capture the cycles, an ARMA(1,2) process was used. The plot below visualize the model fit.
+
+
+
+```{r}
+# Plotting STL + ARMA
+plot(stl_arima_fc, main = "Forecasts from STL + ARMA(1,2)",
+     ylim = c(0,20),
+     ylab = "Unemployment Rates (%)",
+     xlab = "Time")
+lines(ts_unemployment)
+lines(stl_arima_fit, col = "red")
+lines(stl_arima_fc$mean, col = "blue3", lwd = 2)
+abline(v = 2018.75, col = "red", lty = 2)
+
+```
+
+The black solid line is the original series, and the red dashed line is the point where the train-test split was split by. The green line indicates the model fit and the blue line shows the 60-steps (5 years) ahead forecasts. While the forecasts seem to be performing relatively well, it fails to predict the huge spike in 2019-2020, which was the COVID-19, the pandemic era. However, and the unemployment rates drop as the economy stabilizes, the forecast starts performing well again.
+
+
+
+#### ACF and PACF
+
+The ACF and PACF plots below indicate some significant dynamics still left in the residuals. In PACF, we can see that there is some seasonal components that have not been captured year based on the spikes in every 12th lags (ex. 12, 24, and 36) and the seasonal patterns are also captured in the ACF as well. This means that, given auto.arima did not detect any seasonal patterns and outputted ARMA(1,2), STL model may be misspecifying the seasonality of the original data. This may be because the original data has irregular seasonality, and STL model with the seasonal window set to 12 may not be the best method the model sutch an irregular seasonality. To verify if the spikes are statistically significant enough to say that there is more work to do, Ljung-Box test was used.
+
+```{r}
+tsdisplay(stl_arima_model$residuals,
+          main = "Residuals of STL + ARMA Model")
+Box.test(stl_arima_model$residuals, type = "Ljung-Box") # FRT; No autocorrelation
+```
+
+Based on the the p-value of the test, we fail to reject the null hypothesis that there is no autocorrelation in the residuals. In other words, while there are some significant spikes, the Ljung-box concludes that there is no sufficient evidence for autocorrelation in the residuals.
+
+
+
+#### Cumulative Sum Test
+\
+By visualizing the cumulative sum of residuals, we can see that the `CUSUM` line stays within the control lines. Thus, it is confirmed that there is no structural break.
+
+```{r}
+plot(efp(stl_arima_model$residuals ~ 1, type = "Rec-CUSUM"))
+```
+
+
+
+
+
+## (b) ARIMA Model
+
+For this model, ARIMA model alone captures all the components previously explored; trend, seasonality, and cycles. Using `auto.arima` function, the optimal order was obtained; ARIMA(2,1,2) + S.ARIMA(2,1,0). As observed in the decomposition, there is a trend compoenent and it is captured by I(1) and Seasonal first order differencing. The seasonal component is modeled by S.ARMA(2,0), and ARMA(2,2) handles the cycle components. 
+
+Also, it is worth noting that the prediction intervals are wider than the STL+ARMA model, which may be an indicator of more uncertainty in the forecasting performance.
+
+```{r}
+# Creating an Arima model
+arima_model <- auto.arima(ts_train)
+arima_fit <- auto.arima(ts_train)$fitted
+arima_fc <- forecast(auto.arima(ts_train), h = 60)
+
+# Visualizing the model fit
+plot(arima_fc, main = "ARIMA(2,1,1) + S.ARIMA(2,1,0) Model",
+     ylim = c(-7,20),
+     ylab = "Unemployment Rates (%)",
+     xlab = "Time")
+lines(ts_unemployment)
+lines(arima_fit, col = "orange")
+lines(arima_fc$mean, col = "blue3", lwd = 2)
+abline(v = 2018.75, col = "red", lty = 2)
+
+
+
+```
+
+
+
+#### ACF and PACF
+```{r}
+# Inspecting the residuals
+tsdisplay(arima_model$residuals,
+          main = "Residuals of ARIMA model")
+
+Box.test(arima_model$residuals, type = "Ljung-Box") # FTR; No autocorrelation
+
+
+```
+
+Based on the ACF and PACF, the ARIMA model is capturing the dynamics of the data well. Although some spikes appear to be "significant", the lag values are far away from the present, and the magnitude of the spikes are not high. To confirm that the residuals are behaving like white noise, Ljung-Box test was used. Since the p-value is high (0.9894), we reject the null hypothesis that there is statistically significant correlation between lags. Therefore, the residuals are like white noise.
+
+#### Cumulative Sum
+To test if there is any structural break, the cumulative sum test was used. As shown below, the cumulative sum plot below shows the cumulative sum of errors stays around the horizontal line at 0 and within the red lines. This verifies that there is no structural break in the model.
+```{r}
+# CUSUM
+plot(efp(arima_model$residuals ~ 1, type = "Rec-CUSUM"))
+
+```
+
+
+
+## (c) ETS Model
+The plot below shows the ETS (A,N,A), which represents an additive Holt-Winters with additive errors and no explicit trend component.
+
+```{r}
+# ETS Model (Additive)
+ets_model <- ets(ts_train)
+ets_fit <- ets(ts_train)$fitted
+ets_fc <- forecast(ets(ts_train), h = 60)
+
+
+
+# Visualizing the model fit
+plot(ets_fc, main = "ETS(A,N,A) Model",
+     ylim = c(-3,20),
+     ylab = "Unemployment Rates (%)",
+     xlab = "Time")
+lines(ts_unemployment)
+lines(ets_fit, col = "green2", lwd = 2)
+lines(ets_fc$mean, col = "blue3", lwd = 2)
+abline(v = 2018.75, col = "red", lty = 2)
+
+
+
+```
+
+#### ACF and PACF
+\
+While the model fit on the original series seems to capture the dynamics well, ACF and PACF do not agree on that. Based on the ACF, PACF, and Ljung-Box test, the residuals still have statistically significant autocorrelation, and thus, there may be some more dynamics that ETS failed to capture.
+
+```{r}
+tsdisplay(ets_model$residuals, main = "Residuals of ETS model")
+Box.test(ets_model$residuals, type = "Ljung-Box") # FTR; autocorrelation
+```
+
+#### Cumulative Sum
+Similar to the previous models, no structural breaks were observed in the residuals of model.
+```{r}
+plot(efp(ets_model$residuals ~ 1, type = "Rec-CUSUM"))
+```
+
+
+
+
+
+## (d) Holt-Winters Model with Addtive Seasonality
+Since the amplitudes of the seasonality appear to be constant over time, except for the huge spike in 2019, an **additive Holt-winter** model was chosen. The plot below visualizes the model fit and 60-steps ahead forecasts on the testing set, which is the actual data.
+
+```{r}
+# Holt-Winters Model
+hw_model_add_model <- hw(ts_train, seasonal = "additive", h = 60)
+hw_model_add_fit <- hw(ts_train, seasonal = "additive", h = 60)$fitted
+hw_model_add_fc <- hw(ts_train, seasonal = "additive", h = 60)$mean
+
+
+# Visualizing the model fit
+plot(hw_model_add_model, main = "Holt-Winters Model",
+     ylim = c(0,20),
+     ylab = "Unemployment Rates (%)",
+     xlab = "Time")
+lines(ts_unemployment)
+lines(hw_model_add_fit, col = "purple")
+lines(hw_model_add_fc, col = "blue3", lwd = 2)
+abline(v = 2018.75, col = "red", lty = 2)
+
+
+
+```
+
+#### ACF and PACF
+The ACF and PACF plots indicates significant autocorrelation left in the residuals. As also verified by the Ljung-test, we reject the null hypothesis that there is autocorrelation at a significance level of 0.05. In other words, the model fit could be improved and there might be more work to be done.
+```{r}
+tsdisplay(hw_model_add_model$residuals, main = "Residuals of Holt-Winters model")
+Box.test(hw_model_add_model$residuals, type = "Ljung-Box") # FTR; autocorrelation
+```
+
+#### Cumulative Sum
+As confirmed by the plot below, there is no significant structural breaks in the errors of the model.
+```{r}
+plot(efp(hw_model_add_model$residuals ~ 1, type = "Rec-CUSUM"))
+```
+
+
+
+
+## (e) NNETAR Model
+As shown below, NNAR(2,1,2) was chosen as the optimal order of Neural Network Autoregressive model with inputs of:
+
+- $y_{t-1}, y_{t-2}, y_{t-3}$
+- $y_{t-12}$
+- two neurons in the hidden layer
+
+```{r}
+NNAR_model <- tsibble_train %>%
+  model(NNETAR(CGBD2024))
+NNAR_fc <- forecast(NNAR_model, h = 60)
+NNAR_fit <- fitted(NNAR_model)
+
+t <- seq(2000, 2023.75, length = length(ts_unemployment))
+t_train <- seq(2000, 2018.75, length = length(ts_train))
+t_test <- seq(2018.833, 2023.75, length = length(ts_test))
+# Visualizing the model fit
+autoplot(unemployment) + 
+  autolayer(NNAR_fc) +
+  autolayer(NNAR_fit, col = "yellow") +
+  labs(title = "NNAR(2,1,2) Model", y = "Unemployment Rate (%)")
+
+
+
+
+```
+
+#### ACF and PACF
+For NNAR model, the ACF and PACF are almost completely wiped out, which is a very good sign that the NNAR model is capturing the dynamics of the original time series well. As expected from the plots, Ljung-box test confirm ,with p-value of 0.9315, that there is no evidence of autocorrelation. 
+```{r}
+tsdisplay(resid(NNAR_model)$.resid, main = "Residuals of NNAR model")
+Box.test(resid(NNAR_model)$.resid, type = "Ljung-Box") #reject; no autocorrelation
+
+```
+
+
+#### Cumulative Sum
+NNAR model also does not have any structural breaks detected, which suggests that the model is stable over time.
+```{r}
+plot(efp(resid(NNAR_model)$.resid ~ 1, type = "Rec-CUSUM"))
+```
+
+
+
+
+## (e) Prophet Model
+The Prophet model is designed to capture more complex seasonal patterns typically found in higher frequency data, such as minute or hourly data. Since the prophet function expects at least daily frequency, the monthly frequency was explicitly specified in the model. Additionally, the order argument is set to 6, indicating the inclusion of 6 Fourier terms to model the monthly seasonality, allowing the model to adapt to the lower frequency of the data. 
+
+As seen below in the plot, the performance of the prophet model is expected be low compared to the other models.
+
+```{r}
+prophet_model <- tsibble_train %>%
+  model(prophet(CGBD2024 ~ season(period = 12, order = 6)))
+
+prophet_fit <- fitted(prophet_model)
+prophet_fc <- forecast(prophet_model, h = 60)
+
+
+
+# Visualizing the model fit
+autoplot(unemployment) +
+  autolayer(prophet_fit, col = "skyblue")+
+  autolayer(prophet_fc) +
+  labs(title = "Prophet Model", y = "Unemployment Rate (%)")
+  
+
+```
+
+
+#### ACF and PACF
+As expected, the residual plot still has a lot of patterns, and ACF, PACF, and the Ljung-Box test provide statistical measure (low p-value) supporting that. 
+
+```{r}
+tsdisplay(resid(prophet_model)$.resid, main = "Residuals of Prophet model")
+Box.test(resid(prophet_model)$.resid, type = "Ljung-Box") # reject; autocorrelation
+
+```
+
+#### Cumulative Sum
+For the prophet model, there is a structural break in the middle, which suggest that the prophet model may not be an effective method to model this time series.
+```{r}
+plot(efp(resid(prophet_model)$.resid ~ 1, type = "Rec-CUSUM"))
+```
+
+
+## (f) Combined Model
+The purpose of combining different models is to mitigate the uncertainty and leverage the strengths that each model has. For this combined model, 5 models were considered including:
+
+1. STL + ARMA Model
+2. ARIMA Model
+3. ETS Model
+4. Holt-Winters Model
+5. Neural Network Autoregressive Model
+
+Note the the prophet model was excluded in the combined model because the performance of the model was exclusively worst compared to the other models. In addition, the combined model performed better on the performance metrics without the prophet model.
+
+
+```{r}
+combined_fit <- (stl_arima_fit + arima_fit + ets_fit + hw_model_add_fit +
+  NNAR_fit$.fitted) / 5 
+combined_fc <- (stl_arima_fc$mean + arima_fc$mean + ets_fc$mean + hw_model_add_fc +
+  NNAR_fc$.mean) / 5
+
+
+plot(ts_train, main = "Combined model",
+     ylab = "Unemployment Rates (%)",
+     xlab = "Time")
+
+
+lines(stl_arima_fit, col = "red")
+lines(arima_fit, col = "orange")
+lines(ets_fit, col = "green")
+lines(hw_model_add_fit, col = "purple")
+lines(t_train,NNAR_fit$.fitted, col = "yellow")
+lines(t_train, prophet_fit$.fitted, col = "skyblue")
+lines(combined_fit, col = "cyan", lwd = 2)
+legend("topright", legend = c("STL+ARM", "ARIMA", "ETS", "HW", "NNAR", "Prophet", "Combined"),
+       cex = 0.7, col = c("red", "orange", "green", "purple", "yellow", "skyblue", "cyan"), lty = 1)
+
+plot(ts_unemployment, xlim = c(2018, 2024), main = "Combined Model Forecasts",
+     ylab = "Unemployment Rates (%)",
+     xlab = "Time",
+     ylim = c(-2, 20))
+lines(stl_arima_fc$mean, col = "red")
+lines(arima_fc$mean, col = "orange")
+lines(ets_fc$mean, col = "green")
+lines(hw_model_add_fc, col = "purple")
+lines(t_test,NNAR_fc$.mean, col = "yellow")
+lines(t_test,prophet_fc$.mean, col = "skyblue")
+lines(combined_fc, col = "cyan", lwd = 2)
+legend("topright", legend = c("STL+ARM", "ARIMA", "ETS", "HW", "NNAR", "Prophet", "Combined"),
+       cex = 0.7, col = c("red", "orange", "green", "purple", "yellow", "skyblue", "cyan"), lty = 1)
+
+
+```
+
+
+#### ACF and PACF
+The residuals of the combined model is behaving like a white noise. Except for a couple of random spikes in the further lags, there is no autocorrelation left to be modeled, which is also supported by the Ljung-Box test.
+
+```{r}
+tsdisplay(ts_train - combined_fit, main = "Residuals of the Combined model")
+Box.test(ts_train - combined_fit, type = "Ljung-Box") # FTR; no autocorrelation
+```
+
+#### Cumulative Sum
+
+The combined model also does not exhibit any structural break. 
+```{r}
+plot(efp(ts_train - combined_fit ~ 1, type = "Rec-CUSUM"))
+```
+
+
+
+## Performance Matrices
+
+```{r}
+# Creating performance matrics table for the train set
+train_perf_metrics <- data.frame(ME = c(ME(stl_arima_model$residuals), 
+                                        ME(arima_model$residuals), ME(ets_model$residuals), 
+                                        ME(hw_model_add_model$residuals), 
+                                        ME(resid(NNAR_model)$.resid), 
+                                        ME(ts_train - combined_fit)),
+           RMSE = c(RMSE(stl_arima_model$residuals), 
+                    RMSE(arima_model$residuals), 
+                    RMSE(ets_model$residuals), 
+                    RMSE(hw_model_add_model$residuals), 
+                    RMSE(resid(NNAR_model)$.resid), 
+                    RMSE(ts_train - combined_fit)),
+           MAE = c(MAE(stl_arima_model$residuals), 
+                   MAE(arima_model$residuals), 
+                   MAE(ets_model$residuals), 
+                   MAE(hw_model_add_model$residuals), 
+                   MAE(resid(NNAR_model)$.resid), 
+                   MAE(ts_train - combined_fit)))
+
+rownames(train_perf_metrics) <- c("STL+ARMA", "ARIMA", "ETS", 
+                                  "Holt-Winters", "NNAR", "Combined")
+kable(train_perf_metrics)
+
+
+# Creating performance matrics table for the test set
+test_perf_metrics <- data.frame(ME = c(ME(ts_test - stl_arima_fc$mean), 
+                                       ME(ts_test - arima_fc$mean), 
+                                       ME(ts_test - ets_fc$mean), 
+                                       ME(ts_test - hw_model_add_fc), 
+                                       ME(ts_test - NNAR_fc$.mean), 
+                                       ME(ts_test - combined_fc)),
+           RMSE = c(RMSE(ts_test - stl_arima_fc$mean), 
+                    RMSE(ts_test - arima_fc$mean), 
+                    RMSE(ts_test - ets_fc$mean), 
+                    RMSE(ts_test - hw_model_add_fc), 
+                    RMSE(ts_test - NNAR_fc$.mean), 
+                    RMSE(ts_test - combined_fc)),
+           MAE = c(MAE(ts_test - stl_arima_fc$mean), 
+                   MAE(ts_test - arima_fc$mean), 
+                   MAE(ts_test - ets_fc$mean), 
+                   MAE(ts_test - hw_model_add_fc), 
+                   MAE(ts_test - NNAR_fc$.mean), 
+                   MAE(ts_test - combined_fc))
+           )
+
+rownames(test_perf_metrics) <- c("STL+ARMA", "ARIMA", 
+                                 "ETS", "Holt-Winters", "NNAR", "Combined")
+kable(test_perf_metrics)
+```
+
+To select the preferred model, ME, RMSE, and MAE are used. Based on the model fit and ACF and PACF plots, I initially thought that the best performing model would either be ARIMA, NNAR, or the combined model. Those are the models with no leftover dynamics in the residuals plot. However, according to the performance metrices above, we have come to a little different conclusion than initially expected.
+
+First, the positive ME's show that the models are generally *underestimating* the actual values. This may be partically because of the significant spike in the unemployment rate during the pandemic. The models in this project were not able to capture the sudden shock caused by a random event, COVID-19.
+
+In terms of the model performance, either ETS or NNAR could be the best performing model on the training dataset as they scored the lowest on RMSE and MAE. On the test dataset, Holt-Winter's and ETS model are the first and the second place. Therefore, considering the performance scores on both training and testing set, the preferred model would be ETS model.
+
+## Checking for Volatility of ETS
+```{r}
+tsdisplay(ets_model$residuals^2, main = "Squared Residuals of ETS model")
+Box.test(ets_model$residuals^2, type = "Ljung-Box") # FTR at 0.05
+```
+
+At a significance level of 0.05, we conclude that there is no volatility to be captured in our preferred model, ETS. 
+
+
+
+
+
+
+# 3. Conclusions and Future Work.
+
+In conclusion, this project attempted to model the unemployment rate among college graduates with a bachelor's or higher degree, aged between 20 and 24, using 7 different models including STL+ARMA, ARIMA, ETS, Holt-Winters, NNAR, prophet, and a model that combines of the above models. To assess the model fit, the behavior of the residuals, and the performances of the models, the ACF and PACF correlograms, Ljung-Box tests, and the cumulative sum tests were used. Specifically, to determine the preferred model, each model's performance on both training and testing datasets was evaluated. As a result, we conclude that the ETS model performs the best in capturing the dynamics of the original time series, and potentially in forecasting the future rates. 
+
+For future work, although they were not included in this particular project, a model that could account for other economic factors correlated with the unemployment rate, such as the VAR model or a method that splits the series into parts and models the varying trends and seasonal components may be able to perform better in terms of the model fit and forecasting.
+
+
+
+
+\pagebreak
+
+# 4. References
+\setlength{\parindent}{-0.2in}
+\setlength{\leftskip}{0.2in}
+\setlength{\parskip}{8pt}
+\noindent
+
+
+U.S. Bureau of Labor Statistics. “Unemployment Rate - College Graduates - Bachelor’s Degree, 20 to 24 Years.” FRED, Federal Reserve Bank of St. Louis, 1 Jan. 2000, https://fred.stlouisfed.org/series/CGBD2024.
