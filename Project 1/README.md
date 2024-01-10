@@ -8,5 +8,5 @@ This project attempts to model the monthly retail trades in the United States, s
 ## Data
 The dataset used for this project is downloaded from the FRED Economic data website (https://fred.stlouisfed.org/series/RSXFSN). The observation frequency of the data is monthly and was preprocessed for analysis.
 
-## Methodology
+## Methods
 The modeling approach adopted in this project is centered around a Trend-Seasonal model. This involves decomposing the time series into its trend and seasonal components, allowing for a more detailed understanding of the underlying patterns.
