@@ -22,7 +22,7 @@ The dataset used for this project are downloaded from the FRED Economic data web
 
 The observation frequency of the data is monthly and was preprocessed for analysis.
 
-## Methodology
+## Methods
 
 
 #### STL + ARIMA Model
