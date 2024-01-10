@@ -12,7 +12,7 @@ Both of the datasets used for this project are downloaded from the FRED Economic
    
 The observation frequency of the data is monthly and was preprocessed for analysis.
 
-## Methodology
+## Methods
 
 
 #### VAR Model Construction
